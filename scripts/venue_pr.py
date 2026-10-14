@@ -7,6 +7,7 @@ import hmac
 import json
 import os
 import re
+import subprocess
 import sys
 import urllib.error
 import urllib.parse
@@ -181,10 +182,25 @@ def notify(envelope, status, pr_url=None):
     result = {"id": envelope["id"], "day": envelope["day"], "status": status, "prUrl": pr_url}
     raw = json.dumps(result, separators=(",", ":")).encode()
     signature = hmac.new(os.environ["SUBMISSION_SIGNING_KEY"].encode(), raw, hashlib.sha256).hexdigest()
-    request = urllib.request.Request(endpoint + "/internal/result", data=raw, method="POST", headers={"Content-Type": "application/json", "X-Submission-Signature": signature})
-    with urllib.request.urlopen(request, timeout=20) as response:
-        if response.status != 200:
-            raise InvalidSubmission("Submission callback failed.")
+    # Cloudflare can reject Python's HTTP transport before the Worker runs.
+    # Keep signed data in standard input, disable user curl configuration, and
+    # never follow redirects or print response bodies/credentials.
+    config = "\n".join([
+        "url = " + json.dumps(endpoint + "/internal/result"),
+        'request = "POST"', 'header = "Content-Type: application/json"',
+        "header = " + json.dumps("X-Submission-Signature: " + signature),
+        "data = " + json.dumps(raw.decode("utf-8")),
+    ]) + "\n"
+    try:
+        response = subprocess.run(
+            ["curl", "--disable", "--config", "-", "--silent", "--show-error", "--proto", "=https", "--connect-timeout", "10", "--max-time", "20", "--max-filesize", "2000", "--write-out", "\n%{http_code}"],
+            input=config, text=True, capture_output=True, timeout=25, check=False,
+        )
+        body, code = response.stdout.rsplit("\n", 1)
+        if response.returncode or code != "200" or json.loads(body) != {"ok": True}:
+            raise ValueError("callback response")
+    except (subprocess.SubprocessError, OSError, ValueError):
+        raise InvalidSubmission("Submission callback failed. The pull request may already exist; check the repository before retrying.") from None
 
 
 def main():

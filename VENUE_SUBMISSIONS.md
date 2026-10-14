@@ -123,9 +123,12 @@ The restricted GitHub token dispatched an intentionally invalid signed request.
 That [security test](https://github.com/alirafiqmalik/sec-deadlines/actions/runs/38024824242) failed as expected with a signature mismatch, before any venue write.
 It did not create a PR or consume a daily slot.
 
-A complete production form submission and PR callback still require verification in a normal browser.
-The automated browser could not complete the production Turnstile challenge.
-Production bot checks remain enabled. No test venue has been submitted or merged.
+The automated browser could not complete the production Turnstile challenge at initial activation.
+The owner's [SAIS 2027 submission](https://github.com/alirafiqmalik/sec-deadlines/pull/1) subsequently created a PR, passed its venue safety check, and was merged on 10 October.
+Its [submission workflow](https://github.com/alirafiqmalik/sec-deadlines/actions/runs/38025425603) failed after PR creation because the Python callback transport received HTTP 403 before reaching the Worker.
+On 14 October, the signed callback was switched to curl, with credentials in standard input, HTTPS only, no redirects, bounded responses and timeouts.
+The corrected callback returned HTTP 200 for that existing submission and restored its successful PR status without creating another request or consuming a daily slot.
+Production bot checks remain enabled. No new test venue has been submitted or merged.
 
 On 14 October 2026, the URL parser was checked using a temporary authenticated Worker with the same extraction code and a real Cloudflare AI binding.
 It read the [IEEE S&P 2027 call for papers](https://www.ieee-security.org/TC/SP2027/cfpapers.html) and returned its venue year, event dates, location, two paper submission deadlines, and AoE timezone.
@@ -133,8 +136,8 @@ The returned draft passed the shared field validator. This check created no PR a
 The temporary Worker was deleted after the check.
 The production `/api/config` reports URL parsing enabled, with ten shared daily lookups, three per network address, and the original five-submission limit.
 Live `/api/extract` checks rejected invalid bot tokens, private-address URLs, oversized bodies, and foreign origins before parsing.
-All **62 automated checks** passed locally: 13 Python security checks, 39 Worker checks, and 10 browser checks.
-The production bot-verified URL request and final PR callback remain normal-browser checks; the isolated parser smoke test does not replace them.
+All **66 automated checks** passed locally: 17 Python security checks, 39 Worker checks, and 10 browser checks.
+A complete production bot-verified URL draft and subsequent PR submission remain a normal-browser check; the isolated parser and signed callback smoke tests do not replace that check.
 
 ## Tests
 
