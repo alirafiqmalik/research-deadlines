@@ -6,9 +6,25 @@
   <p id="add-venue-intro">Submit a venue for review. Its details will be public in a GitHub pull request. It appears here after Ali merges the request.</p>
   <p class="venue-hint">Five submissions are accepted per day across all visitors. The limit resets at midnight UTC. Avoid personal or private information.</p>
   <form id="add-venue-form">
+    <fieldset id="venue-methods" class="venue-methods" disabled>
+      <legend>How would you like to add the venue?</legend>
+      <label class="venue-method"><input type="radio" name="venue-method" value="url" checked> <span><strong>From a URL</strong><span class="venue-hint">Let Cloudflare AI draft the details.</span></span></label>
+      <label class="venue-method"><input type="radio" name="venue-method" value="manual"> <span><strong>Enter manually</strong><span class="venue-hint">Fill in the venue details yourself.</span></span></label>
+    </fieldset>
+    <fieldset id="venue-url-fields" disabled>
+      <label>Venue or call-for-papers URL <input id="venue-url" type="url" maxlength="400" required placeholder="https://conference.org/cfp" aria-describedby="venue-url-hint"></label>
+      <p id="venue-url-hint" class="venue-hint">Use a public HTTPS page with the event details and deadlines. Cloudflare reads the page and drafts the form below for you to check. Nothing is submitted until you confirm.</p>
+      <p id="venue-lookup-limit" class="venue-hint">Up to ten URL lookups per day across all visitors, and three per network. The manual form stays available.</p>
+      <button id="venue-extract" type="button" class="btn btn-default" disabled>Get venue details</button>
+    </fieldset>
+    <div id="venue-verification"></div>
+    <div id="venue-details" hidden>
+    <h3 id="venue-details-title">Venue details</h3>
+    <p id="venue-draft-notice" class="venue-hint" hidden></p>
+    <button id="venue-different-url" type="button" class="btn btn-default" hidden>Use a different URL</button>
     <fieldset id="venue-fields" disabled>
       <div class="venue-form-grid">
-        <label>Venue name <input name="name" required maxlength="80" autocomplete="off" placeholder="ExampleConf" autofocus></label>
+        <label>Venue name <input name="name" required maxlength="80" autocomplete="off" placeholder="ExampleConf"></label>
         <label>Year <input name="year" type="number" required step="1"></label>
         <label class="venue-wide">Official website <input name="link" type="url" required maxlength="400" placeholder="https://conference.org/"></label>
         <label class="venue-wide">Call for papers or deadline source <input name="source" type="url" required maxlength="400" placeholder="https://conference.org/cfp"></label>
@@ -30,7 +46,8 @@
       </fieldset>
       <label>CORE ranking (optional) <select name="rank"><option value="">Not specified</option>{% for type in site.data.filters.filter3 %}<option value="{{ type.tag | escape }}">{{ type.name | escape }}</option>{% endfor %}</select></label>
     </fieldset>
-    <div id="venue-verification"></div>
+    <label id="venue-review-label" class="venue-review" hidden><input id="venue-reviewed" type="checkbox"> I checked the draft against the venue website, including its year, deadlines and timezone.</label>
+    </div>
     <p id="venue-status" role="status" aria-live="polite" tabindex="-1">Loading submission service…</p>
     <a id="venue-pr-link" target="_blank" rel="noopener noreferrer" hidden>View your pull request on GitHub</a>
     <div class="venue-form-actions">

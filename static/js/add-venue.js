@@ -1,4 +1,5 @@
-import { MAX_BYTES, validatePayload } from "./venue-validation.js";
+import { MAX_BYTES, publicUrl, validatePayload } from "./venue-validation.js";
+import { readDraft } from "./venue-draft.js";
 
 const dialog = document.getElementById("add-venue-dialog");
 const form = document.getElementById("add-venue-form");
@@ -8,13 +9,23 @@ const status = document.getElementById("venue-status");
 const prLink = document.getElementById("venue-pr-link");
 const check = document.getElementById("venue-check");
 const another = document.getElementById("venue-another");
+const methods = document.getElementById("venue-methods");
+const urlFields = document.getElementById("venue-url-fields");
+const urlInput = document.getElementById("venue-url");
+const extract = document.getElementById("venue-extract");
+const details = document.getElementById("venue-details");
+const draftNotice = document.getElementById("venue-draft-notice");
+const reviewLabel = document.getElementById("venue-review-label");
+const reviewed = document.getElementById("venue-reviewed");
+const differentUrl = document.getElementById("venue-different-url");
 const storageKey = "sec-deadlines:venue-submission:v1";
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const year = new Date().getUTCFullYear();
 form.elements.year.value = year + 1;
 form.elements.year.min = year;
 form.elements.year.max = year + 5;
-let api, config, widget, token = "", loading = false, sending = false, pollTimer, job;
+let api, config, widget, token = "", loading = false, sending = false, parsing = false, pollTimer, job;
+let mode = "url", draftReady = false, needsReview = false, verificationGeneration = 0;
 
 try {
   const saved = JSON.parse(sessionStorage.getItem(storageKey));
@@ -31,15 +42,27 @@ function remember() {
 }
 
 function refreshControls() {
-  fields.disabled = !config?.enabled || sending || Boolean(job);
-  submit.disabled = fields.disabled || !token;
-  submit.hidden = Boolean(job);
+  const busy = !config?.enabled || sending || parsing || Boolean(job);
+  const showDetails = mode === "manual" || draftReady || Boolean(job);
+  methods.disabled = busy;
+  methods.querySelector('[value="url"]').disabled = !config?.extractionEnabled;
+  urlFields.hidden = mode !== "url" || draftReady || Boolean(job);
+  urlFields.disabled = busy || urlFields.hidden;
+  extract.disabled = busy || !config?.extractionEnabled || !token;
+  details.hidden = !showDetails;
+  fields.disabled = busy || !showDetails;
+  reviewed.disabled = busy;
+  reviewLabel.hidden = !needsReview;
+  differentUrl.hidden = mode !== "url" || !draftReady || Boolean(job);
+  differentUrl.disabled = busy;
+  submit.disabled = fields.disabled || !token || needsReview && !reviewed.checked;
+  submit.hidden = Boolean(job) || !showDetails;
   check.hidden = !job || job.finished;
   another.hidden = !job?.finished;
 }
 
-async function request(path, options = {}) {
-  const response = await fetch(api + path, { ...options, credentials: "omit", cache: "no-store", signal: AbortSignal.timeout(25000) });
+async function request(path, options = {}, timeout = 25000) {
+  const response = await fetch(api + path, { ...options, credentials: "omit", cache: "no-store", signal: AbortSignal.timeout(timeout) });
   let body;
   try { body = await response.json(); } catch { throw new Error("The submission service returned an invalid response. Try again later."); }
   if (!response.ok) throw new Error(body.error || "The submission service could not complete this request.");
@@ -65,12 +88,29 @@ function loadTurnstile() {
 async function verification() {
   await loadTurnstile();
   if (!dialog.open || job || widget !== undefined) return;
+  const generation = ++verificationGeneration;
   widget = window.turnstile.render("#venue-verification", {
-    sitekey: config.siteKey, action: "add_venue", theme: "dark",
-    callback: value => { token = value; refreshControls(); },
-    "expired-callback": () => { token = ""; refreshControls(); },
-    "error-callback": () => { token = ""; refreshControls(); message("Bot verification failed. Check your connection and try again.", true); },
+    sitekey: config.siteKey, action: mode === "url" && !draftReady ? "parse_venue" : "add_venue", theme: "dark",
+    callback: value => { if (generation === verificationGeneration) { token = value; refreshControls(); } },
+    "expired-callback": () => { if (generation === verificationGeneration) { token = ""; refreshControls(); } },
+    "error-callback": () => { if (generation === verificationGeneration) { token = ""; refreshControls(); message("Bot verification failed. Check your connection and try again.", true); } },
   });
+}
+
+function removeVerification() {
+  verificationGeneration++;
+  if (widget !== undefined) { window.turnstile.remove(widget); widget = undefined; }
+  token = "";
+}
+
+async function renewVerification() {
+  removeVerification();
+  refreshControls();
+  try { await verification(); } catch (error) { message(error.message, true); }
+}
+
+function prompt() {
+  return mode === "url" && !draftReady ? "Paste the venue URL and complete bot verification to get a draft." : "Complete the form and bot verification to submit for review.";
 }
 
 async function open() {
@@ -85,15 +125,50 @@ async function open() {
     api = endpoint.origin;
     config = await request("/api/config");
     if (!config.enabled || typeof config.siteKey !== "string" || !config.siteKey) throw new Error("Venue submissions are temporarily unavailable. Please try again later.");
+    if (!config.extractionEnabled && mode === "url") {
+      mode = "manual";
+      methods.querySelector('[value="manual"]').checked = true;
+    }
     refreshControls();
     if (job) await poll();
     else {
-      message("Complete the form and bot verification to submit for review.");
+      if (parsing) return;
+      message(config.extractionEnabled ? prompt() : "URL parsing is temporarily unavailable. Enter the venue details manually.");
       await verification();
-      if (dialog.open) form.elements.name.focus();
+      if (dialog.open) (mode === "url" && !draftReady ? urlInput : form.elements.name).focus();
     }
   } catch (error) { message(error.message, true); }
   finally { loading = false; refreshControls(); }
+}
+
+async function getDraft() {
+  if (parsing || sending || job || !token || mode !== "url" || draftReady || !config?.extractionEnabled) return;
+  let url;
+  try { url = publicUrl(urlInput.value.trim(), "Venue URL"); }
+  catch (error) { message(error.message, true); urlInput.focus(); return; }
+  parsing = true;
+  refreshControls();
+  message("Reading the venue website and drafting its details…");
+  try {
+    const result = readDraft(await request("/api/extract", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url, turnstileToken: token }) }, 65000));
+    // Only assign validated plain values to form controls; never render page or
+    // model content as HTML. Unknown facts stay blank for the user to complete.
+    for (const name of ["name", "year", "link", "source", "date", "place", "timezone", "description"]) form.elements[name].value = result.draft[name] ?? "";
+    form.elements.deadline.value = result.draft.deadline?.join("\n") ?? "";
+    for (const name of ["dblp", "comment", "rank"]) form.elements[name].value = "";
+    for (const input of form.querySelectorAll('input[name="venue-topic"], input[name="venue-kind"]')) input.checked = result.draft.tags.includes(input.value);
+    draftReady = true;
+    needsReview = true;
+    reviewed.checked = false;
+    draftNotice.textContent = result.missingFields.length ? `Draft ready. Complete these missing details: ${result.missingFields.join(", ")}. Check every field against the venue website before submitting.` : "Draft ready. Check every field against the venue website before submitting, especially the year, deadlines and timezone.";
+    draftNotice.hidden = false;
+    message("Review the draft below. No pull request has been sent.");
+  } catch (error) { message(`${error.name === "TimeoutError" ? "URL parsing took too long. You can enter the venue manually." : error.message} This lookup may count toward today's URL limit.`, true); }
+  finally {
+    parsing = false;
+    await renewVerification();
+    if (dialog.open && draftReady) form.elements.name.focus();
+  }
 }
 
 function payloadFromForm() {
@@ -142,7 +217,8 @@ async function poll() {
 
 form.addEventListener("submit", async event => {
   event.preventDefault();
-  if (sending || job || !token) return;
+  if (mode === "url" && !draftReady) { await getDraft(); return; }
+  if (sending || parsing || job || !token || needsReview && !reviewed.checked) return;
   let payload;
   try { payload = payloadFromForm(); }
   catch (error) { message(error.message, true); status.focus(); return; }
@@ -164,9 +240,7 @@ form.addEventListener("submit", async event => {
     } else message(error.message, true);
   } finally {
     sending = false;
-    token = "";
-    if (widget !== undefined) window.turnstile.reset(widget);
-    refreshControls();
+    await renewVerification();
   }
 });
 
@@ -174,9 +248,25 @@ document.getElementById("add-venue-btn").addEventListener("click", open);
 document.getElementById("venue-close").addEventListener("click", () => dialog.close());
 dialog.addEventListener("close", () => {
   clearTimeout(pollTimer);
-  if (widget !== undefined) { window.turnstile.remove(widget); widget = undefined; }
-  token = "";
+  removeVerification();
   document.getElementById("add-venue-btn").focus();
+});
+methods.addEventListener("change", async event => {
+  if (event.target.name !== "venue-method" || parsing || sending || job) return;
+  mode = event.target.value;
+  refreshControls();
+  message(prompt());
+  await renewVerification();
+  if (dialog.open) (mode === "url" && !draftReady ? urlInput : form.elements.name).focus();
+});
+extract.addEventListener("click", getDraft);
+reviewed.addEventListener("change", refreshControls);
+differentUrl.addEventListener("click", async () => {
+  draftReady = false;
+  reviewed.checked = false;
+  message("Paste a new URL. Its draft will replace the current venue details.");
+  await renewVerification();
+  urlInput.focus();
 });
 check.addEventListener("click", poll);
 another.addEventListener("click", async () => {
@@ -184,10 +274,12 @@ another.addEventListener("click", async () => {
   remember();
   form.reset();
   form.elements.year.value = year + 1;
+  mode = config.extractionEnabled ? "url" : "manual";
+  methods.querySelector(`[value="${mode}"]`).checked = true;
+  draftReady = false;
+  needsReview = false;
+  draftNotice.hidden = true;
   prLink.hidden = true;
-  if (widget !== undefined) { window.turnstile.remove(widget); widget = undefined; }
-  token = "";
-  refreshControls();
-  message("Complete the form and bot verification to submit for review.");
-  try { await verification(); } catch (error) { message(error.message, true); }
+  message(prompt());
+  await renewVerification();
 });

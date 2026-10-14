@@ -1,12 +1,13 @@
-import { publicUrl, validatePayload, TOPICS, KINDS } from "../../static/js/venue-validation.js";
+import { publicUrl, TOPICS, KINDS } from "../../static/js/venue-validation.js";
 import { readBounded } from "./security.js";
+import { draftSchema, normalizeDraft } from "../../static/js/venue-draft.js";
+export { normalizeDraft } from "../../static/js/venue-draft.js";
 
 export const EXTRACTION_DAILY_LIMIT = 10;
 export const EXTRACTION_VISITOR_LIMIT = 3;
 export const EXTRACTION_MODEL = "@cf/meta/llama-3.1-8b-instruct-fp8";
 const MAX_PAGE_BYTES = 256000;
 const MAX_TEXT = 16000;
-const lengths = { name: 80, description: 240, date: 100, place: 120, timezone: 64 };
 
 export class ExtractionError extends Error {
   constructor(message, status = 422) { super(message); this.status = status; }
@@ -106,38 +107,6 @@ export async function visibleText(html) {
   }).replace(/[\t ]+/g, " ").replace(/\n\s*\n/g, "\n").trim();
 }
 
-export const draftSchema = {
-  type: "object", additionalProperties: false,
-  properties: {
-    ...Object.fromEntries(Object.entries(lengths).map(([key, maxLength]) => [key, { type: ["string", "null"], maxLength }])),
-    year: { type: ["integer", "null"] },
-    deadline: { type: ["array", "null"], maxItems: 8, items: { type: "string" } },
-    tags: { type: "array", maxItems: 11, uniqueItems: true, items: { type: "string", enum: [...TOPICS, ...KINDS] } },
-  },
-  required: [...Object.keys(lengths), "year", "deadline", "tags"],
-};
-
-export function normalizeDraft(raw, source, year = new Date().getUTCFullYear()) {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw) || Object.keys(raw).some(key => !Object.hasOwn(draftSchema.properties, key))) throw new ExtractionError("The parser returned an invalid draft. Use the manual form.");
-  const base = { name: "Draft", year: year + 1, link: source, date: "TBA", place: "TBA", deadline: ["TBA"], timezone: "Etc/GMT+12", tags: ["SEC", "CONF"] };
-  const draft = { link: source, source };
-  try {
-    for (const field of [...Object.keys(lengths), "year"]) {
-      const value = raw[field];
-      draft[field] = value === null || value === undefined || value === "" ? null : validatePayload({ schemaVersion: 1, source, venue: { ...base, [field]: value } }, year).venue[field];
-    }
-    if (raw.deadline != null && (!Array.isArray(raw.deadline) || raw.deadline.length > 8)) throw new Error("invalid deadlines");
-    // A date without its year or timezone is unsafe to turn into a countdown.
-    draft.deadline = raw.deadline?.length && draft.year && draft.timezone ? validatePayload({ schemaVersion: 1, source, venue: { ...base, year: draft.year, timezone: draft.timezone, deadline: raw.deadline } }, year).venue.deadline : null;
-    if (!Array.isArray(raw.tags) || raw.tags.length > 11 || new Set(raw.tags).size !== raw.tags.length || raw.tags.some(tag => ![...TOPICS, ...KINDS].includes(tag))) throw new Error("invalid tags");
-    draft.tags = raw.tags;
-  } catch { throw new ExtractionError("The parser could not produce safe venue fields. Use the manual form."); }
-  const missingFields = ["name", "year", "date", "place", "deadline", "timezone"].filter(field => draft[field] == null);
-  if (!draft.tags.some(tag => TOPICS.includes(tag))) missingFields.push("research domain");
-  if (!draft.tags.some(tag => KINDS.includes(tag))) missingFields.push("publication type");
-  return { draft, missingFields };
-}
-
 export async function extractVenue(value, ai) {
   const page = await fetchVenuePage(value);
   const year = new Date().getUTCFullYear();
@@ -158,5 +127,6 @@ export async function extractVenue(value, ai) {
     if (new TextEncoder().encode(typeof raw === "string" ? raw : JSON.stringify(raw)).length > 6000) throw new Error("large draft");
     if (typeof raw === "string") raw = JSON.parse(raw);
   } catch { throw new ExtractionError("The parser returned an incomplete draft. Use the manual form."); }
-  return normalizeDraft(raw, page.url, year);
+  try { return normalizeDraft(raw, page.url, year); }
+  catch { throw new ExtractionError("The parser could not produce safe venue fields. Use the manual form."); }
 }

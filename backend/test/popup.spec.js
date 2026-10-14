@@ -3,8 +3,8 @@ import { expect, test } from "@playwright/test";
 const endpoint = "https://sec-deadlines-submissions.test-account.workers.dev";
 let received;
 
-async function open(page, enabled = true) {
-  await page.route(endpoint + "/api/config", route => route.fulfill({ json: { enabled, siteKey: "browser-test-key" } }));
+async function open(page, enabled = true, method = "manual", extractionEnabled = true) {
+  await page.route(endpoint + "/api/config", route => route.fulfill({ json: { enabled, extractionEnabled, siteKey: "browser-test-key" } }));
   await page.route("https://challenges.cloudflare.com/turnstile/v0/api.js**", route => route.fulfill({ contentType: "application/javascript", body: `window.turnstile = {
     render(selector, options) { this.options = options; document.querySelector(selector).textContent = 'Bot verification (test stub)'; queueMicrotask(() => options.callback('test-only-token')); return 'test-widget'; },
     reset() { queueMicrotask(() => this.options.callback('test-only-token')); },
@@ -13,7 +13,10 @@ async function open(page, enabled = true) {
   await page.goto("./");
   await page.evaluate(api => document.getElementById("add-venue-dialog").dataset.api = api, endpoint);
   await page.getByRole("button", { name: "Add Venue", exact: true }).click();
-  if (enabled) await expect(page.getByRole("button", { name: "Submit for review" })).toBeEnabled();
+  if (enabled) {
+    if (method === "manual") await page.locator('#venue-methods [value="manual"]').check();
+    await expect(page.locator(method === "url" && extractionEnabled ? "#venue-extract" : "#venue-submit")).toBeEnabled();
+  }
 }
 
 async function fill(page) {
@@ -75,8 +78,89 @@ test("submits entirely in popup, prevents double clicks, and shows the PR", asyn
   await page.locator("#add-venue-btn").click();
   await expect(page.locator("#venue-pr-link")).toBeVisible();
   await page.locator("#venue-another").click();
+  await page.locator('#venue-methods [value="manual"]').check();
   await expect(page.locator('#venue-fields [name="name"]')).toHaveValue("");
   await expect(page.locator("#venue-submit")).toBeEnabled();
+});
+
+const draft = () => ({ name: "ExampleConf", year: new Date().getUTCFullYear() + 1, link: "https://conference.org/cfp", source: "https://conference.org/cfp", description: "Security conference", date: "June 12–14", place: "London, UK", deadline: [`${new Date().getUTCFullYear()}-12-01 23:59`], timezone: "Etc/GMT+12", tags: ["SEC", "CONF"] });
+
+test("offers URL and manual options and requires review before submitting a parsed draft", async ({ page }) => {
+  let lookups = 0, submissions = 0;
+  await page.route(endpoint + "/api/extract", async route => {
+    const body = route.request().postDataJSON();
+    expect(body.url).toBe("https://conference.org/cfp");
+    expect(body.turnstileToken).toBe("test-only-token"); lookups++;
+    await new Promise(resolve => setTimeout(resolve, 80));
+    await route.fulfill({ json: { draft: draft(), missingFields: [] } });
+  });
+  await page.route(endpoint + "/api/submissions", route => {
+    submissions++; received = route.request().postDataJSON();
+    return route.fulfill({ status: 202, json: { day: new Date().toISOString().slice(0, 10), status: "queued" } });
+  });
+  await page.route(endpoint + "/api/status?**", route => route.fulfill({ json: { status: "created", prUrl: "https://github.com/alirafiqmalik/sec-deadlines/pull/123" } }));
+  await open(page, true, "url");
+  await expect(page.locator("#venue-url")).toBeFocused();
+  await expect(page.locator("#venue-details")).not.toBeVisible();
+  expect(await page.evaluate(() => window.turnstile.options.action)).toBe("parse_venue");
+  await page.locator("#venue-url").fill("https://conference.org/cfp");
+  await page.locator("#venue-extract").dblclick();
+  await expect(page.locator("#venue-draft-notice")).toContainText("Draft ready");
+  await expect(page.locator('[name="name"]')).toHaveValue("ExampleConf");
+  await expect(page.locator('[name="deadline"]')).toHaveValue(draft().deadline[0]);
+  await expect(page.locator("#venue-submit")).toBeDisabled();
+  expect(lookups).toBe(1); expect(submissions).toBe(0);
+  expect(await page.evaluate(() => window.turnstile.options.action)).toBe("add_venue");
+  await page.locator('[name="place"]').fill("Edited location");
+  await page.locator("#venue-reviewed").check();
+  await page.locator("#venue-submit").click();
+  await expect(page.locator("#venue-pr-link")).toBeVisible();
+  expect(received.payload.venue.place).toBe("Edited location"); expect(submissions).toBe(1);
+});
+
+test("leaves unknown extracted facts blank and preserves manual fields when switching methods", async ({ page }) => {
+  await page.route(endpoint + "/api/extract", route => route.fulfill({ json: { draft: { ...draft(), year: null, deadline: null, timezone: null, tags: [] } } }));
+  await open(page, true, "url");
+  for (const width of [320, 375, 768, 1440]) {
+    await page.setViewportSize({ width, height: 720 });
+    expect(await page.locator("#add-venue-dialog").evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+  }
+  await page.locator("#venue-url").fill("https://conference.org/cfp"); await page.locator("#venue-extract").click();
+  await expect(page.locator("#venue-draft-notice")).toContainText("year, deadline, timezone");
+  await expect(page.locator('[name="year"]')).toHaveValue(""); await expect(page.locator('[name="deadline"]')).toHaveValue("");
+  await page.locator('[name="name"]').fill("Edited draft");
+  await page.locator('#venue-methods [value="manual"]').check();
+  await expect(page.locator('[name="name"]')).toHaveValue("Edited draft");
+  await page.locator('#venue-methods [value="url"]').check();
+  await expect(page.locator('[name="name"]')).toHaveValue("Edited draft");
+  await page.locator("#venue-different-url").click();
+  await expect(page.locator("#venue-url")).toBeFocused();
+  await expect(page.locator("#venue-details")).not.toBeVisible();
+});
+
+test("handles parsing errors and malicious drafts safely and keeps manual entry usable", async ({ page }) => {
+  let calls = 0;
+  await page.route(endpoint + "/api/extract", route => {
+    calls++;
+    return route.fulfill(calls === 1 ? { status: 429, json: { error: "Today's shared limit of ten URL lookups is reached." } } : { json: { draft: { ...draft(), name: '<img src=x onerror="window.injected=true">' } } });
+  });
+  await open(page, true, "url");
+  await page.locator("#venue-url").fill("https://127.0.0.1/"); await page.locator("#venue-extract").click();
+  await expect(page.locator("#venue-status")).toContainText("public domain"); expect(calls).toBe(0);
+  await page.locator("#venue-url").fill("https://conference.org/cfp"); await page.locator("#venue-extract").click();
+  await expect(page.locator("#venue-status")).toContainText("limit of ten");
+  await page.locator("#venue-extract").click();
+  await expect(page.locator("#venue-status")).toContainText("safe venue fields");
+  expect(await page.evaluate(() => Boolean(window.injected))).toBe(false);
+  await page.locator('#venue-methods [value="manual"]').check(); await fill(page);
+  await expect(page.locator("#venue-submit")).toBeEnabled();
+});
+
+test("falls back to manual entry when parsing is unavailable", async ({ page }) => {
+  await open(page, true, "manual", false);
+  await expect(page.locator('#venue-methods [value="url"]')).toBeDisabled();
+  await expect(page.locator("#venue-status")).toContainText("Enter the venue details manually");
+  await fill(page); await expect(page.locator("#venue-submit")).toBeEnabled();
 });
 
 test("rejects unsafe input locally and preserves fields when daily cap is reached", async ({ page }) => {
