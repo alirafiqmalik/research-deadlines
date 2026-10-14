@@ -159,3 +159,5 @@
   - AI
   - CONF
   - SEC
+
+- {"name":"S&P Oakland","year":2027,"description":"48th IEEE Symposium on Security and Privacy","link":"https://sp2027.ieee-security.org/cfpapers.html","deadline":["2026-06-11 23:59","2026-11-17 23:59"],"timezone":"Etc/GMT+12","date":"MAY 17-20, 2027","place":"LE CENTRE SHERATON MONTREAL HOTEL, MONTREAL, CANADA","tags":["CONF","SEC"]}
