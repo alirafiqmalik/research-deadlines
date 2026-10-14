@@ -64,6 +64,7 @@ describe("safe page fetching", () => {
     await expect(fetchVenuePage(source)).rejects.toThrow("HTML or text");
     vi.restoreAllMocks();
     const normal = external(); await fetchVenuePage(source);
+    expect(normal.mock.calls.filter(([url]) => String(url).includes("dns-query")).every(([, options]) => options.redirect === "manual")).toBe(true);
     const options = normal.mock.calls.find(([url]) => url === source)[1];
     expect(options.redirect).toBe("manual");
     expect(Object.keys(options.headers).sort()).toEqual(["Accept", "User-Agent"]);
@@ -73,6 +74,8 @@ describe("safe page fetching", () => {
     const text = await visibleText(`<h1>Readable venue</h1><script>SECRET SCRIPT</script><style>SECRET STYLE</style><div hidden>SECRET HIDDEN</div><nav>SECRET NAV</nav><p>Deadline &amp; location</p>`);
     expect(text).toContain("Readable venue"); expect(text).toContain("Deadline & location"); expect(text).not.toContain("SECRET");
     expect((await visibleText(`<p>${"a".repeat(20000)}</p>`)).length).toBeLessThanOrEqual(16000);
+    external({ page: `<p>${"研".repeat(10000)}</p>` });
+    expect(new TextEncoder().encode((await fetchVenuePage(source)).text).length).toBeLessThanOrEqual(16000);
   });
 });
 
@@ -87,6 +90,14 @@ describe("untrusted model output", () => {
 
   it("rejects injected fields, markup, invalid dates, timezones and rankings", () => {
     for (const change of [{ command: "run" }, { name: "<script>" }, { description: "{{site.title}}" }, { year: year - 5 }, { deadline: [`${year}-02-30 23:59`] }, { timezone: "../../etc" }, { tags: ["SEC", "CONF", "CORE-A"] }]) expect(() => normalizeDraft({ ...facts(), ...change }, source)).toThrow();
+  });
+
+  it("converts valid second precision to the existing minute format with a review notice", () => {
+    const result = normalizeDraft({ ...facts(), deadline: [`${year - 1}-12-01 23:59:59`] }, source);
+    expect(result.draft.deadline).toEqual([`${year - 1}-12-01 23:59`]);
+    expect(result.warnings).toHaveLength(1);
+    expect(() => normalizeDraft({ ...facts(), deadline: [`${year - 1}-12-01 23:59:99`] }, source)).toThrow();
+    expect(() => normalizeDraft({ ...facts(), deadline: [`${year - 1}-02-30 23:59:59`] }, source)).toThrow();
   });
 
   it("makes exactly one bounded inference without tools or model-directed requests", async () => {

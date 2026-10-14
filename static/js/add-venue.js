@@ -161,6 +161,7 @@ async function getDraft() {
     needsReview = true;
     reviewed.checked = false;
     draftNotice.textContent = result.missingFields.length ? `Draft ready. Complete these missing details: ${result.missingFields.join(", ")}. Check every field against the venue website before submitting.` : "Draft ready. Check every field against the venue website before submitting, especially the year, deadlines and timezone.";
+    if (result.warnings.length) draftNotice.textContent += ` ${result.warnings.join(" ")}`;
     draftNotice.hidden = false;
     message("Review the draft below. No pull request has been sent.");
   } catch (error) { message(`${error.name === "TimeoutError" ? "URL parsing took too long. You can enter the venue manually." : error.message} This lookup may count toward today's URL limit.`, true); }
