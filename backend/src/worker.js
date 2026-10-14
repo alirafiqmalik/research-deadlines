@@ -1,11 +1,14 @@
 import { DurableObject } from "cloudflare:workers";
 import { DAILY_LIMIT, MAX_BYTES, InvalidSubmission, validatePayload, venueKey } from "../../static/js/venue-validation.js";
 import { digest, readBounded, sign, verify } from "./security.js";
+import { verifyVisitor } from "./turnstile.js";
+import { EXTRACTION_DAILY_LIMIT, EXTRACTION_VISITOR_LIMIT, ExtractionError, extractVenue } from "./extraction.js";
+import { publicUrl } from "../../static/js/venue-validation.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 const ACTION = "add_venue";
-const VERSION = "2026-10-09";
+const VERSION = "2026-10-14";
 
 function reply(body, status = 200, origin, extra = {}) {
   return Response.json(body, { status, headers: {
@@ -18,6 +21,8 @@ function available(env) {
   return env.SUBMISSIONS_ENABLED === "true" && Boolean(env.TURNSTILE_SITE_KEY && env.TURNSTILE_SECRET && env.GITHUB_DISPATCH_TOKEN && env.SUBMISSION_SIGNING_KEY);
 }
 
+function extractionAvailable(env) { return available(env) && env.EXTRACTION_ENABLED === "true" && Boolean(env.AI); }
+
 export class DailySubmissions extends DurableObject {
   constructor(ctx, env) {
     super(ctx, env);
@@ -27,6 +32,7 @@ export class DailySubmissions extends DurableObject {
         venue_key TEXT UNIQUE NOT NULL, slot INTEGER UNIQUE NOT NULL, envelope TEXT NOT NULL,
         status TEXT NOT NULL, pr_url TEXT, created INTEGER NOT NULL
       )`);
+      this.ctx.storage.sql.exec("CREATE TABLE IF NOT EXISTS extractions (id INTEGER PRIMARY KEY, requester TEXT NOT NULL)");
     });
   }
 
@@ -48,6 +54,19 @@ export class DailySubmissions extends DurableObject {
     return result;
   }
 
+  async reserveExtraction(requester) {
+    const result = this.ctx.storage.transactionSync(() => {
+      const total = this.ctx.storage.sql.exec("SELECT COUNT(*) AS n FROM extractions").one().n;
+      if (total >= EXTRACTION_DAILY_LIMIT) return { accepted: false, reason: "daily_limit" };
+      const visitor = this.ctx.storage.sql.exec("SELECT COUNT(*) AS n FROM extractions WHERE requester = ?", requester).one().n;
+      if (visitor >= EXTRACTION_VISITOR_LIMIT) return { accepted: false, reason: "visitor_limit" };
+      this.ctx.storage.sql.exec("INSERT INTO extractions (requester) VALUES (?)", requester);
+      return { accepted: true };
+    });
+    if (result.accepted) await this.ctx.storage.setAlarm(Date.now() + 8 * 86400000);
+    return result;
+  }
+
   dispatched(id) {
     this.ctx.storage.sql.exec("UPDATE submissions SET status = 'queued' WHERE id = ? AND status = 'reserved'", id);
   }
@@ -65,7 +84,10 @@ export class DailySubmissions extends DurableObject {
     return row ? { status: row.status, prUrl: row.pr_url } : null;
   }
 
-  async alarm() { this.ctx.storage.sql.exec("DELETE FROM submissions"); }
+  async alarm() {
+    this.ctx.storage.sql.exec("DELETE FROM submissions");
+    this.ctx.storage.sql.exec("DELETE FROM extractions");
+  }
 }
 
 function object(env, day) {
@@ -101,7 +123,7 @@ export default {
       "Access-Control-Allow-Origin": allowedOrigin, "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
       "Access-Control-Allow-Headers": "Content-Type, X-Submission-Receipt", "Access-Control-Max-Age": "600", "Vary": "Origin",
     } });
-    if (url.pathname === "/api/config" && request.method === "GET") return reply({ enabled: available(env), siteKey: env.TURNSTILE_SITE_KEY, dailyLimit: DAILY_LIMIT }, 200, allowedOrigin);
+    if (url.pathname === "/api/config" && request.method === "GET") return reply({ enabled: available(env), siteKey: env.TURNSTILE_SITE_KEY, dailyLimit: DAILY_LIMIT, extractionEnabled: extractionAvailable(env), extractionDailyLimit: EXTRACTION_DAILY_LIMIT, extractionVisitorLimit: EXTRACTION_VISITOR_LIMIT }, 200, allowedOrigin);
     const rate = await env.REQUEST_LIMIT.limit({ key: request.headers.get("CF-Connecting-IP") || "unknown" });
     if (!rate.success) return reply({ error: "Too many requests. Try again in a minute." }, 429, allowedOrigin, { "Retry-After": "60" });
     if (url.pathname === "/api/status" && request.method === "GET") {
@@ -109,6 +131,30 @@ export default {
       if (!UUID.test(id || "") || !recentDay(day) || !/^[0-9a-f]{64}$/.test(receipt)) return reply({ error: "Not found." }, 404, allowedOrigin);
       const status = await object(env, day).status(id, await digest(receipt));
       return reply(status || { error: "Not found." }, status ? 200 : 404, allowedOrigin);
+    }
+    if (url.pathname === "/api/extract" && request.method === "POST") {
+      if (!extractionAvailable(env)) return reply({ error: "URL parsing is currently unavailable. You can still enter the venue manually." }, 503, allowedOrigin);
+      if (request.headers.get("Content-Type")?.split(";")[0] !== "application/json") return reply({ error: "Send JSON." }, 415, allowedOrigin);
+      let data;
+      try {
+        data = JSON.parse(await readBounded(request, 3000));
+        if (!data || Object.keys(data).sort().join() !== "turnstileToken,url" || typeof data.turnstileToken !== "string" || !data.turnstileToken.length || data.turnstileToken.length > 2048) throw new Error("fields");
+        publicUrl(data.url, "Venue URL");
+      } catch (error) { return reply({ error: error.message === "too_large" ? "Request is too large." : "Enter a public HTTPS venue URL." }, error.message === "too_large" ? 413 : 400, allowedOrigin); }
+      try { await verifyVisitor(request, env, data.turnstileToken, "parse_venue"); }
+      catch (error) { return reply({ error: error.message }, error.status, allowedOrigin); }
+      const day = new Date().toISOString().slice(0, 10);
+      const quota = env.SUBMISSIONS.getByName(`${env.GITHUB_REPOSITORY}:extraction:${day}`);
+      // Daily keyed hash: no raw visitor IP is stored in the durable quota.
+      const requester = await sign(`${day}:${request.headers.get("CF-Connecting-IP") || "unknown"}`, env.SUBMISSION_SIGNING_KEY);
+      const reservation = await quota.reserveExtraction(requester);
+      if (!reservation.accepted) return reply({ error: reservation.reason === "daily_limit" ? "Today's shared limit of ten URL lookups is reached. You can still enter a venue manually." : "This network has used its three URL lookups today. You can still enter a venue manually." }, 429, allowedOrigin);
+      try {
+        return reply(await extractVenue(data.url, env.AI), 200, allowedOrigin);
+      } catch (error) {
+        // Retain reservations on failure to bound fetches and model usage.
+        return reply({ error: error instanceof ExtractionError ? error.message : "The website could not be parsed. Try its call-for-papers page or use the manual form." }, error instanceof ExtractionError ? error.status : 422, allowedOrigin);
+      }
     }
     if (url.pathname !== "/api/submissions" || request.method !== "POST") return reply({ error: "Not found." }, 404, allowedOrigin);
     if (!available(env)) return reply({ error: "Venue submissions are temporarily unavailable." }, 503, allowedOrigin);
@@ -122,14 +168,8 @@ export default {
       if (new TextEncoder().encode(JSON.stringify(data.payload)).length > MAX_BYTES) throw new InvalidSubmission("Submission is too large.");
       payload = validatePayload(data.payload);
     } catch (error) { return reply({ error: error instanceof InvalidSubmission ? error.message : "Invalid submission." }, 400, allowedOrigin); }
-    try {
-      const check = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
-        method: "POST", signal: AbortSignal.timeout(10000), headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({ secret: env.TURNSTILE_SECRET, response: data.turnstileToken, remoteip: request.headers.get("CF-Connecting-IP") || "" }),
-      });
-      const verification = JSON.parse(await readBounded(check, 8000));
-      if (!check.ok || verification.success !== true || verification.action !== ACTION || verification.hostname !== env.TURNSTILE_HOSTNAME) return reply({ error: "Bot verification failed. Complete it again." }, 403, allowedOrigin);
-    } catch { return reply({ error: "Bot verification is unavailable. Try again." }, 503, allowedOrigin); }
+    try { await verifyVisitor(request, env, data.turnstileToken, ACTION); }
+    catch (error) { return reply({ error: error.message }, error.status, allowedOrigin); }
     const day = new Date().toISOString().slice(0, 10);
     const stub = object(env, day);
     const envelope = { version: 1, id: data.id, day, createdAt: new Date().toISOString(), payload };

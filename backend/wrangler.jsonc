@@ -6,6 +6,7 @@
   "compatibility_date": "2026-10-09",
   "workers_dev": true,
   "preview_urls": false,
+  "ai": { "binding": "AI", "remote": true },
   "durable_objects": {
     "bindings": [{ "name": "SUBMISSIONS", "class_name": "DailySubmissions" }]
   },
@@ -17,7 +18,8 @@
     "ALLOWED_ORIGIN": "https://alihamzamalik.me",
     "TURNSTILE_HOSTNAME": "alihamzamalik.me",
     "TURNSTILE_SITE_KEY": "0x4AAAAAAFS1wzff7JoOUavM",
-    "SUBMISSIONS_ENABLED": "true"
+    "SUBMISSIONS_ENABLED": "true",
+    "EXTRACTION_ENABLED": "true"
   },
   "observability": {
     "enabled": true,
