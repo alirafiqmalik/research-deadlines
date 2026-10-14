@@ -3,9 +3,40 @@
 The **Add Venue** button opens a form beside **Delete Expired Venues**.
 The form creates a public pull request. A venue appears on the website only after the repository owner merges its PR.
 
-The feature uses Cloudflare Workers, a SQLite Durable Object, Turnstile, and GitHub Actions.
+The popup offers **From a URL** and **Enter manually**. Both lead to the same venue form and PR review process.
+The feature uses Cloudflare Workers, Workers AI, a SQLite Durable Object, Turnstile, and GitHub Actions.
 These Cloudflare products support the Free plan. Usage remains subject to their account limits.
-See [Workers limits](https://developers.cloudflare.com/workers/platform/limits/) and [Durable Objects pricing](https://developers.cloudflare.com/durable-objects/platform/pricing/).
+See [Workers limits](https://developers.cloudflare.com/workers/platform/limits/), [Workers AI pricing](https://developers.cloudflare.com/workers-ai/platform/pricing/), and [Durable Objects pricing](https://developers.cloudflare.com/durable-objects/platform/pricing/).
+
+## URL drafts
+
+1. Paste the venue's public HTTPS website or call-for-papers URL and complete bot verification.
+2. The Worker verifies Turnstile action `parse_venue` and reserves a URL lookup.
+3. A script checks the destination's public DNS addresses, follows at most three validated redirects, and reads one HTML or text page.
+4. It removes scripts and hidden content, then sends bounded text to Cloudflare Workers AI using `@cf/meta/llama-3.3-70b-instruct-fp8-fast` and a JSON schema.
+5. The Worker and browser validate the extracted values. Unknown facts remain blank; no CORE ranking is inferred.
+6. Review and edit the draft, fill missing fields, and confirm that its details match the website.
+7. A fresh Turnstile verification with action `add_venue` protects the existing submission flow below.
+
+Parsing does **not** start a workflow, open a PR, or consume a venue submission slot.
+It has a separate durable limit of **ten lookups per UTC day across all visitors**, and **three per network address per day**.
+Failed lookups retain their reservations to bound fetching and inference costs.
+The manual form remains available when parsing fails, its daily allowance is exhausted, or Workers AI is unavailable.
+No paid plan or AI Gateway is configured. The account's shared free Workers AI allowance still applies.
+
+Fetched pages are limited to 256,000 bytes, with a 12-second fetch timeout.
+Model input is limited to 16,000 bytes of page text and one inference with at most 1,200 output tokens and a 40-second wait.
+The model receives no credentials, has no tools, and cannot follow additional links or write repository contents.
+The server enforces field lengths, deadline validity, tags, and URL rules independently of model schema enforcement.
+
+The form uses minute precision. If a source specifies seconds, the draft drops the seconds and displays a notice to check the exact time.
+PDFs, login-protected pages, JavaScript-only content, and unreadable or oversized pages require manual entry.
+AI extraction can misread facts; confirm the year, submission rounds, deadline timezone, location and publication type before submitting.
+
+The supplied public page URL and its extracted text are processed by Cloudflare Workers AI.
+The quota stores a signing-key-protected daily hash of the visitor's network address, without storing the raw address.
+Parsing logs do not include page URLs, page text, model output or visitor addresses.
+Quota records are removed after eight days.
 
 ## Request flow
 
@@ -26,11 +57,13 @@ Do not delete daily quota tags to retry a failed request.
 ## Security and review
 
 - The Worker accepts the configured website origin. Origin checking supplements bot verification and the daily quota.
-- Turnstile verification requires `success: true`, action `add_venue`, and hostname `alihamzamalik.me`.
+- Turnstile verification requires `success: true`, the expected action (`parse_venue` for drafts or `add_venue` for submissions), and hostname `alihamzamalik.me`.
 - Requests have size limits and a per-IP rate limit. The IP limit applies per Cloudflare location.
 - Names, dates, tags, timezones, and URLs have strict checks in both JavaScript and Python.
 - Both validators reject HTML, Liquid templates, control characters, credential URLs, IP URLs, and reserved local domains.
-- The service never fetches URLs supplied by visitors.
+- Only the dedicated draft endpoint fetches visitor-supplied URLs. Submission and PR creation do not fetch them.
+- URL fetching checks public IPv4/IPv6 DNS answers for every redirect, rejects local and special-purpose destinations, and forwards no visitor credentials or cookies.
+- DNS checks precede a normal Worker fetch, which resolves the host independently; these checks do not pin DNS answers. Do not attach private-network or authenticated service bindings to the parser.
 - HMAC signatures protect workflow inputs and callbacks. Dispatch tokens alone cannot sign submissions.
 - The GitHub dispatch token needs only **Actions: Read and write** on `alirafiqmalik/sec-deadlines`.
 - The workflow uses its temporary `GITHUB_TOKEN` to create the branch and PR. The Worker cannot write repository contents.
@@ -67,6 +100,10 @@ The steps below describe how to activate a fresh deployment or restore this setu
 12. Set `SUBMISSIONS_ENABLED` to `true`, then deploy the Worker.
 13. Test a real production Turnstile token, its replay rejection, and the PR callback before declaring activation complete.
 
+The URL option additionally requires the `AI` binding and `EXTRACTION_ENABLED: "true"` from `backend/wrangler.jsonc`.
+No additional API key is needed for the AI binding.
+Smoke-test the deployed parser with a known public call-for-papers page and confirm that its draft still requires review before submission.
+
 The expected origin is `https://sec-deadlines-submissions.<account-subdomain>.workers.dev`.
 Keep it consistent in both configurations.
 GitHub repository settings must allow Actions to create pull requests.
@@ -89,6 +126,15 @@ It did not create a PR or consume a daily slot.
 A complete production form submission and PR callback still require verification in a normal browser.
 The automated browser could not complete the production Turnstile challenge.
 Production bot checks remain enabled. No test venue has been submitted or merged.
+
+On 14 October 2026, the URL parser was checked using a temporary authenticated Worker with the same extraction code and a real Cloudflare AI binding.
+It read the [IEEE S&P 2027 call for papers](https://www.ieee-security.org/TC/SP2027/cfpapers.html) and returned its venue year, event dates, location, two paper submission deadlines, and AoE timezone.
+The returned draft passed the shared field validator. This check created no PR and consumed no production venue or URL quota slot.
+The temporary Worker was deleted after the check.
+The production `/api/config` reports URL parsing enabled, with ten shared daily lookups, three per network address, and the original five-submission limit.
+Live `/api/extract` checks rejected invalid bot tokens, private-address URLs, oversized bodies, and foreign origins before parsing.
+All **62 automated checks** passed locally: 13 Python security checks, 39 Worker checks, and 10 browser checks.
+The production bot-verified URL request and final PR callback remain normal-browser checks; the isolated parser smoke test does not replace them.
 
 ## Tests
 
@@ -118,12 +164,14 @@ npm run test:ui
 Set `CHROMIUM_PATH` to use an existing Chromium executable.
 Browser tests use explicit Turnstile and backend stubs. They do not prove that production credentials work.
 Worker tests use the real Durable Object runtime, including concurrent reservations and storage persistence.
+Tests disable remote bindings and stub inference, so CI needs no Cloudflare credentials and consumes no AI allowance.
 The **Venue submission tests** workflow runs these checks for relevant code changes.
 
 ## Maintenance
 
 - Renew the GitHub dispatch token before its expiry. Replace only the Worker secret.
 - To stop submissions, set `SUBMISSIONS_ENABLED` to `false` and deploy the Worker.
+- To stop only URL parsing, set `EXTRACTION_ENABLED` to `false` and deploy the Worker. The popup then defaults to manual entry.
 - If a visitor reports a submission reference, find it in **Create venue PR** workflow inputs or Worker logs.
 - If GitHub accepted a dispatch, rerun that workflow within its 24-hour signature window.
 - The same signed request reuses its quota proof and existing PR. It does not create another PR.
