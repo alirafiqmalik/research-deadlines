@@ -278,3 +278,143 @@
   note: auto-found from sec-deadlines upstream; please verify
   sub:
   - TBD
+- name: SECRYPT
+  description: International Conference on Security and Cryptography
+  year: 2027
+  link: https://secrypt.scitevents.org
+  deadline:
+  - 2027-02-16 23:59
+  - 2027-03-25 23:59
+  timezone: UTC-12
+  date: July 20-22
+  place: Rome, Italy
+  note: auto-found from sec-deadlines upstream; please verify
+  sub:
+  - TBD
+- name: CiC
+  description: IACR Communications in Cryptology
+  year: 2026
+  link: https://cic.iacr.org/page/callforpapers
+  deadline:
+  - 2026-02-02 23:59
+  - 2026-05-04 23:59
+  - 2026-07-27 23:59
+  - 2026-10-26 23:59
+  timezone: UTC-12
+  note: auto-found from sec-deadlines upstream; please verify
+  sub:
+  - TBD
+- name: DIMVA
+  description: The Conference on Detection of Intrusions and Malware & Vulnerability
+    Assessment
+  year: 2027
+  link: https://www.dimva.org/dimva2027/
+  deadline:
+  - 2026-12-10 23:59
+  - 2027-02-18 23:59
+  timezone: UTC-12
+  date: June 30 - July 2
+  place: Enschede, The Netherlands
+  note: auto-found from sec-deadlines upstream; please verify
+  sub:
+  - TBD
+- name: PAM
+  description: Passive and Active Measurement Conference
+  year: 2027
+  link: https://pam2027.furg.br/
+  deadline:
+  - 2026-11-06 23:59
+  timezone: UTC-12
+  date: March 22-24
+  place: Virtual
+  note: auto-found from sec-deadlines upstream; please verify
+  sub:
+  - TBD
+- name: VehicleSec
+  description: USENIX Symposium on Vehicle Security and Privacy
+  year: 2027
+  link: https://www.usenix.org/conference/vehiclesec27
+  deadline:
+  - 2026-12-15 23:59
+  - 2027-03-11 23:59
+  timezone: UTC-12
+  date: August 9-10
+  place: Denver, CO, USA
+  note: auto-found from sec-deadlines upstream; please verify
+  sub:
+  - TBD
+- name: IMC
+  description: ACM Internet Measurement Conference
+  year: 2027
+  link: https://conferences.sigcomm.org/imc/2027/
+  deadline:
+  - 2026-11-17 23:59
+  timezone: UTC-12
+  date: October 25-29
+  place: Atlanta, GA, USA
+  note: auto-found from sec-deadlines upstream; please verify
+  sub:
+  - TBD
+- name: ISSTA
+  description: ACM SIGSOFT International Symposium on Software Testing and Analysis
+  year: 2027
+  link: https://conf.researchr.org/home/issta-2027
+  deadline:
+  - 2027-01-11 23:59
+  timezone: UTC-12
+  date: September 7 - 10
+  place: Singapore
+  note: auto-found from sec-deadlines upstream; please verify
+  sub:
+  - TBD
+- name: ACISP
+  description: Australasian Conference on Information Security and Privacy
+  year: 2027
+  link: https://acisp.org/
+  deadline:
+  - 2026-11-30 23:59
+  - 2027-03-01 23:59
+  timezone: UTC-12
+  date: July 7-10
+  place: Melbourne, Australia
+  note: auto-found from sec-deadlines upstream; please verify
+  sub:
+  - TBD
+- name: ICICS
+  description: International Conference on Information and Communications Security
+  year: 2027
+  link: https://icics2027.github.io/ICICS-bot/
+  deadline:
+  - 2027-02-28 23:59
+  - 2027-05-30 23:59
+  timezone: UTC-12
+  date: October 27-30
+  place: Chengdu, China
+  note: auto-found from sec-deadlines upstream; please verify
+  sub:
+  - TBD
+- name: SpaceSec
+  description: Workshop on the Security of Space and Satellite Systems
+  year: 2027
+  link: https://spacesec.info/
+  deadline:
+  - 2026-12-06 23:59
+  timezone: UTC-12
+  date: March 22-26
+  place: Seoul, South Korea
+  note: auto-found from sec-deadlines upstream; please verify
+  sub:
+  - TBD
+- name: uASC
+  description: Microarchitecture Security Conference
+  year: 2027
+  link: https://uasc.cc
+  deadline:
+  - 2026-07-28 23:59
+  - 2026-10-27 23:59
+  timezone: UTC-12
+  date: February 3-4
+  place: Amsterdam, Netherlands
+  note: auto-found from sec-deadlines upstream; please verify
+  sub:
+  - TBD
