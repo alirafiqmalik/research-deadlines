@@ -1,0 +1,15 @@
+_site
+.DS_Store
+.jekyll-cache/
+__pycache__/
+*.py[cod]
+.env
+.env.*
+!.env.example
+node_modules/
+.wrangler/
+.build/
+.dev.vars
+.dev.vars.*
+test-results/
+playwright-report/

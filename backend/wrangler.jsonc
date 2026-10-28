@@ -1,0 +1,29 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "sec-deadlines-submissions",
+  "account_id": "b8f7a982d910b10410e0ca9c1fc8b25b",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-10-09",
+  "workers_dev": true,
+  "preview_urls": false,
+  "ai": { "binding": "AI", "remote": true },
+  "durable_objects": {
+    "bindings": [{ "name": "SUBMISSIONS", "class_name": "DailySubmissions" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["DailySubmissions"] }],
+  "ratelimits": [{ "name": "REQUEST_LIMIT", "namespace_id": "82465101", "simple": { "limit": 10, "period": 60 } }],
+  "vars": {
+    "GITHUB_REPOSITORY": "alirafiqmalik/research-deadlines",
+    "GITHUB_BRANCH": "master",
+    "ALLOWED_ORIGIN": "https://alihamzamalik.me",
+    "TURNSTILE_HOSTNAME": "alihamzamalik.me",
+    "TURNSTILE_SITE_KEY": "0x4AAAAAAFS1wzff7JoOUavM",
+    "SUBMISSIONS_ENABLED": "true",
+    "EXTRACTION_ENABLED": "true"
+  },
+  "observability": {
+    "enabled": true,
+    "logs": { "enabled": true, "head_sampling_rate": 1, "invocation_logs": false },
+    "traces": { "enabled": false, "head_sampling_rate": 0.01 }
+  }
+}

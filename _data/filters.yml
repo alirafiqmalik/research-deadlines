@@ -1,0 +1,37 @@
+filter1:
+  - name: Security
+    tag: SEC
+  - name: Cryptography
+    tag: CRYPTO
+  - name: Post-Quantum
+    tag: PQC
+  - name: Quantum
+    tag: QUANTUM
+  - name: Formal methods
+    tag: FORMAL
+  - name: AI/ML
+    tag: AI
+
+filter2:
+  - name: Conference
+    tag: CONF
+  - name: Workshop
+    tag: WORKSHOP
+  - name: Tutorial
+    tag: TUTORIAL
+  - name: Poster
+    tag: POSTER
+  - name: Tools
+    tag: TOOLS
+
+filter3:
+  - name: A*
+    tag: TOP4
+  - name: A
+    tag: CORE-A
+  - name: B
+    tag: CORE-B
+  - name: C
+    tag: CORE-C
+  - name: National/Unranked
+    tag: OTHERS

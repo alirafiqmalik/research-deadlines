@@ -1,0 +1,18 @@
+{
+  "name": "sec-deadlines-submissions",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "test": "vitest run",
+    "check": "wrangler deploy --dry-run --outdir .build",
+    "deploy": "wrangler deploy",
+    "test:ui": "playwright test --config playwright.config.js"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "1.4.0",
+    "@playwright/test": "1.62.1",
+    "vitest": "5.0.3",
+    "wrangler": "4.149.0"
+  }
+}
