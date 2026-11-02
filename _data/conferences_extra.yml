@@ -3,22 +3,6 @@
 # _data/conferences.yml; move verified entries there.
 # scripts/auto_find.py appends candidates here and prunes expired entries.
 
-- name: AAAI
-  description: AAAI Conference on Artificial Intelligence
-  year: 2027
-  link: https://aaai.org/conference/aaai/aaai-27/
-  deadline:
-  - '2026-07-21 23:59:59'
-  - '2026-07-28 23:59:59'
-  timezone: UTC-12
-  date: February 16-23, 2027
-  start_date: '2027-02-16'
-  end_date: '2027-02-23'
-  place: Montréal, Canada
-  note: Abstracts Jul 21, full papers Jul 28 (AoE); camera-ready Dec 14, 2026
-  sub:
-  - AI
-  type: conf
 - name: S&P (Oakland)
   description: IEEE Symposium on Security and Privacy
   year: 2027
