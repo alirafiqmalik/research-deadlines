@@ -105,20 +105,6 @@
   - SEC
   - WORKSHOP
   - TOOLS
-- name: NDSS (Cycle 2)
-  description: ISOC Network and Distributed System Security Symposium
-  year: 2027
-  link: https://www.ndss-symposium.org/ndss2027/submissions/call-for-papers/
-  dblp: https://dblp.org/db/conf/ndss/index.html
-  deadline:
-  - 2026-08-05 23:59
-  comment: Abstract registration required (1 week before deadline AoE).
-  date: February 22-26
-  place: TBD
-  tags:
-  - SEC
-  - CONF
-  - TOP4
 - name: USENIX Security (Cycle 1)
   description: USENIX Security Symposium
   year: 2027
@@ -159,5 +145,16 @@
   - AI
   - CONF
   - SEC
-
-- {"name":"S&P Oakland","year":2027,"description":"48th IEEE Symposium on Security and Privacy","link":"https://sp2027.ieee-security.org/cfpapers.html","deadline":["2026-06-11 23:59","2026-11-17 23:59"],"timezone":"Etc/GMT+12","date":"MAY 17-20, 2027","place":"LE CENTRE SHERATON MONTREAL HOTEL, MONTREAL, CANADA","tags":["CONF","SEC"]}
+- name: S&P Oakland
+  year: 2027
+  description: 48th IEEE Symposium on Security and Privacy
+  link: https://sp2027.ieee-security.org/cfpapers.html
+  deadline:
+  - 2026-06-11 23:59
+  - 2026-11-17 23:59
+  timezone: Etc/GMT+12
+  date: MAY 17-20, 2027
+  place: LE CENTRE SHERATON MONTREAL HOTEL, MONTREAL, CANADA
+  tags:
+  - CONF
+  - SEC
